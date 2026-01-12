@@ -1,130 +1,71 @@
-import { useState } from 'react';
-import { RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
-import { auth } from './firebase';
+import { useState } from "react";
+import { RecaptchaVerifier, signInWithPhoneNumber } from "firebase/auth";
+import { auth } from "./firebase.js";
 
 export default function PhoneAuth() {
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [otp, setOtp] = useState('');
-  const [verificationId, setVerificationId] = useState('');
-  const [showOtpInput, setShowOtpInput] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [otp, setOtp] = useState("");
+  const [confirmation, setConfirmation] = useState(null);
 
   const setupRecaptcha = () => {
     if (!window.recaptchaVerifier) {
-      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-        size: 'invisible',
-        callback: () => {
-          console.log('Recaptcha verified');
-        },
-      });
+      window.recaptchaVerifier = new RecaptchaVerifier(
+        "recaptcha-container",
+        { size: "invisible" },
+        auth
+      );
     }
   };
 
-  const handleSendOtp = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-
-    try {
-      if (!phoneNumber) {
-        setError('Please enter phone number');
-        setLoading(false);
-        return;
-      }
-
-      setupRecaptcha();
-      const appVerifier = window.recaptchaVerifier;
-
-      const result = await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
-      setVerificationId(result.verificationId);
-      setShowOtpInput(true);
-      setError('');
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+  const handleSendOtp = async () => {
+    setupRecaptcha();
+    const result = await signInWithPhoneNumber(
+      auth,
+      phoneNumber,
+      window.recaptchaVerifier
+    );
+    setConfirmation(result);
+    console.log("OTP SENT");
   };
 
-  const handleVerifyOtp = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-
+  const handleVerifyOtp = async () => {
     try {
-      if (!otp) {
-        setError('Please enter OTP');
-        setLoading(false);
-        return;
-      }
+      const res = await confirmation.confirm(otp);
+      const token = await res.user.getIdToken();
+      const uid = res.user.uid;
 
-      // Verify OTP with backend or Firebase
-      const response = await fetch('http://localhost:5000/api/auth/verify-otp', {
-        method: 'POST',
+      // 🔥 Save user in backend
+      const response = await fetch("http://localhost:5000/api/auth/verify-otp", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           phoneNumber,
           otp,
+          uid,
         }),
       });
 
       const data = await response.json();
-
-      if (response.ok) {
-        localStorage.setItem('idToken', data.idToken);
-        alert('Phone authentication successful!');
-        setPhoneNumber('');
-        setOtp('');
-        setShowOtpInput(false);
-      } else {
-        setError(data.error || 'OTP verification failed');
-      }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+      console.log("✅ User saved in DB:", data.user);
+      console.log("🔥 UID:", uid);
+      console.log("🔥 TOKEN:", token);
+    } catch (error) {
+      console.error("❌ Error verifying OTP:", error);
     }
   };
 
   return (
-    <div className="phone-auth-container">
-      <h1>Phone Number Authentication</h1>
+    <>
+      <input onChange={(e) => setPhoneNumber(e.target.value)} placeholder="+91XXXXXXXXXX" />
+      <button onClick={handleSendOtp}>Send OTP</button>
 
-      {!showOtpInput ? (
-        <form onSubmit={handleSendOtp}>
-          <input
-            type="tel"
-            placeholder="Enter phone number (e.g., +91 9999999999)"
-            value={phoneNumber}
-            onChange={(e) => setPhoneNumber(e.target.value)}
-            disabled={loading}
-          />
-          <button type="submit" disabled={loading}>
-            {loading ? 'Sending OTP...' : 'Send OTP'}
-          </button>
-        </form>
-      ) : (
-        <form onSubmit={handleVerifyOtp}>
-          <input
-            type="text"
-            placeholder="Enter 6-digit OTP"
-            value={otp}
-            onChange={(e) => setOtp(e.target.value)}
-            maxLength="6"
-            disabled={loading}
-          />
-          <button type="submit" disabled={loading}>
-            {loading ? 'Verifying...' : 'Verify OTP'}
-          </button>
-        </form>
-      )}
-
-      {error && <p className="error">{error}</p>}
+      <input onChange={(e) => setOtp(e.target.value)} placeholder="OTP" />
+      <button onClick={handleVerifyOtp}>Verify</button>
 
       <div id="recaptcha-container"></div>
-    </div>
+    </>
   );
 }
